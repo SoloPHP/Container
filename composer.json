@@ -1,0 +1,24 @@
+{
+  "name": "solophp/container",
+  "type": "library",
+  "description": "PSR-11 compatible Dependency Injection Container",
+  "keywords": ["PHP","DI","Container","PSR-11"],
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Vitaliy Olos",
+      "email": "vedastudio@gmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Solo\\": "Solo/"
+    }
+  },
+  "require": {
+    "php": ">=7.4",
+    "psr/container": "1.0.0"
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}
