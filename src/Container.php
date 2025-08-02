@@ -1,13 +1,16 @@
-<?php declare(strict_types=1);
+<?php
 
-namespace Solo;
+declare(strict_types=1);
+
+namespace Solo\Container;
 
 use Psr\Container\ContainerInterface;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionNamedType;
-use Solo\Exceptions\ContainerException;
-use Solo\Exceptions\NotFoundException;
+use ReflectionParameter;
+use Solo\Container\Exceptions\ContainerException;
+use Solo\Container\Exceptions\NotFoundException;
 
 /**
  * PSR-11 compatible Dependency Injection Container implementation
@@ -23,12 +26,6 @@ class Container implements ContainerInterface
     /** @var array<string, string> */
     private array $bindings = [];
 
-    /**
-     * Container constructor.
-     *
-     * @param array<string, callable> $initialServices Initial services to register
-     * @throws ContainerException If any of the initial services is not callable
-     */
     public function __construct(array $initialServices = [])
     {
         $this->setMultiple($initialServices);
@@ -59,7 +56,7 @@ class Container implements ContainerInterface
      */
     public function set(string $id, callable $factory): void
     {
-        $this->services[$id] = fn($c) => $factory($c);
+        $this->services[$id] = $factory;
     }
 
     /**
@@ -91,7 +88,6 @@ class Container implements ContainerInterface
      * @return mixed Resolved service
      * @throws NotFoundException If the service is not found
      * @throws ContainerException If the service cannot be resolved
-     * @throws ReflectionException
      */
     public function get(string $id): mixed
     {
@@ -99,28 +95,35 @@ class Container implements ContainerInterface
             return $this->instances[$id];
         }
 
-        if (isset($this->services[$id])) {
-            $resolved = $this->services[$id]($this);
-        } elseif (isset($this->bindings[$id])) {
-            $resolved = $this->resolve($this->bindings[$id]);
-        } elseif (class_exists($id)) {
-            $resolved = $this->resolve($id);
-        } else {
-            throw new NotFoundException("Service [$id] not found in the container.");
-        }
+        try {
+            if (isset($this->services[$id])) {
+                $resolved = $this->services[$id]($this);
+            } elseif (isset($this->bindings[$id])) {
+                $resolved = $this->resolve($this->bindings[$id]);
+            } elseif (class_exists($id)) {
+                $resolved = $this->resolve($id);
+            } else {
+                throw new NotFoundException("Service [$id] not found in the container.");
+            }
 
-        $this->instances[$id] = $resolved;
-        return $resolved;
+            $this->instances[$id] = $resolved;
+            return $resolved;
+        } catch (ReflectionException $e) {
+            throw new ContainerException("Cannot resolve service [$id]: " . $e->getMessage(), 0, $e);
         }
+    }
 
     /**
-     * @throws ContainerException
-     * @throws NotFoundException
-     * @throws ReflectionException
+     * Resolve a class by reflection
+     *
+     * @param string $id Class name to resolve
+     * @return object Resolved instance
+     * @throws ContainerException If the class cannot be instantiated
+     * @throws ReflectionException If reflection fails
      */
-    private function resolve(string $id)
+    private function resolve(string $id): object
     {
-            $reflector = new ReflectionClass($id);
+        $reflector = new ReflectionClass($id);
 
         if (!$reflector->isInstantiable()) {
             throw new ContainerException("Class [$id] is not instantiable.");
@@ -128,10 +131,23 @@ class Container implements ContainerInterface
 
         $constructor = $reflector->getConstructor();
         if (!$constructor) {
-            return new $id;
+            return new $id();
         }
 
-        $dependencies = array_map(function ($param) {
+        $dependencies = $this->resolveDependencies($constructor->getParameters());
+        return $reflector->newInstanceArgs($dependencies);
+    }
+
+    /**
+     * Resolve constructor dependencies
+     *
+     * @param ReflectionParameter[] $parameters Constructor parameters
+     * @return array<mixed> Resolved dependencies
+     * @throws ContainerException If a dependency cannot be resolved
+     */
+    private function resolveDependencies(array $parameters): array
+    {
+        return array_map(function (ReflectionParameter $param) {
             $type = $param->getType();
 
             if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
@@ -142,9 +158,10 @@ class Container implements ContainerInterface
                 return $param->getDefaultValue();
             }
 
-            throw new ContainerException("Cannot resolve dependency [{$param->getName()}].");
-        }, $constructor->getParameters());
-
-        return $reflector->newInstanceArgs($dependencies);
+            throw new ContainerException(
+                "Cannot resolve dependency [{$param->getName()}] for parameter " .
+                "[{$param->getDeclaringClass()?->getName()}:{$param->getName()}]."
+            );
+        }, $parameters);
     }
 }

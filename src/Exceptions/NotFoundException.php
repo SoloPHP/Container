@@ -1,10 +1,9 @@
 <?php
 
-namespace Solo\Exceptions;
+namespace Solo\Container\Exceptions;
 
 use Psr\Container\NotFoundExceptionInterface;
 
 class NotFoundException extends \Exception implements NotFoundExceptionInterface
 {
-
 }

@@ -1,7 +1,12 @@
-!.gitignore
-vendor
-composer.lock
-example
-.idea
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.phpunit.result.cache
+/.phpunit.cache/
+/coverage/
+.phpunit.cache/
+.phpunit.result.cache
+*.cache
+*.log
 .DS_Store
 Thumbs.db
