@@ -1,5 +1,9 @@
 # Solo PHP Container
 
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
+[![License](https://img.shields.io/packagist/l/solophp/container.svg)](https://github.com/solophp/container/blob/main/LICENSE)
+[![PHP Version](https://img.shields.io/packagist/php-v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
+
 A lightweight, PSR-11 compliant dependency injection container for PHP applications.
 
 ## Installation
@@ -12,13 +16,13 @@ composer require solophp/container
 
 ## Requirements
 
-- PHP 8.0 or higher
+- PHP 8.1 or higher
 - Composer 2.0 or higher
 
 ## Basic Usage
 
 ```php
-use Solo\Container;
+use Solo\Container\Container;
 
 // Create a new container
 $container = new Container();
@@ -79,12 +83,32 @@ $container->bind(LoggerInterface::class, FileLogger::class);
 $container->bind(CacheInterface::class, RedisCache::class);
 ```
 
+## Development
+
+### Running Tests
+
+```bash
+composer test
+```
+
+### Code Style
+
+Check code style:
+```bash
+composer cs
+```
+
+Fix code style:
+```bash
+composer cs-fix
+```
+
 ## Error Handling
 
 The container throws two types of exceptions:
 
-- `Solo\Exceptions\NotFoundException`: When a requested service is not found
-- `Solo\Exceptions\ContainerException`: When there's an error resolving a service
+- `Solo\Container\Exceptions\NotFoundException`: When a requested service is not found
+- `Solo\Container\Exceptions\ContainerException`: When there's an error resolving a service
 
 ## License
 
