@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace Solo\Container;
 
-use Psr\Container\ContainerInterface;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionNamedType;
 use ReflectionParameter;
+use Solo\Contracts\Container\WritableContainerInterface;
 use Solo\Container\Exceptions\ContainerException;
 use Solo\Container\Exceptions\NotFoundException;
 
 /**
  * PSR-11 compatible Dependency Injection Container implementation
  */
-class Container implements ContainerInterface
+class Container implements WritableContainerInterface
 {
     /** @var array<string, callable> */
     private array $services = [];
@@ -23,9 +23,10 @@ class Container implements ContainerInterface
     /** @var array<string, mixed> */
     private array $instances = [];
 
-    /** @var array<string, string> */
+    /** @var array<string, class-string> */
     private array $bindings = [];
 
+    /** @param array<string, mixed> $initialServices */
     public function __construct(array $initialServices = [])
     {
         $this->setMultiple($initialServices);
@@ -34,7 +35,7 @@ class Container implements ContainerInterface
     /**
      * Register multiple services at once
      *
-     * @param array<string, callable> $services Array of service factories
+     * @param array<string, mixed> $services Array of service factories
      * @throws ContainerException If any service is not callable
      */
     public function setMultiple(array $services): void
@@ -63,7 +64,7 @@ class Container implements ContainerInterface
      * Bind an abstract type to a concrete implementation
      *
      * @param string $abstract Abstract type identifier
-     * @param string $concrete Concrete class name
+     * @param class-string $concrete Concrete class name
      */
     public function bind(string $abstract, string $concrete): void
     {
@@ -116,7 +117,7 @@ class Container implements ContainerInterface
     /**
      * Resolve a class by reflection
      *
-     * @param string $id Class name to resolve
+     * @param class-string $id Class name to resolve
      * @return object Resolved instance
      * @throws ContainerException If the class cannot be instantiated
      * @throws ReflectionException If reflection fails
