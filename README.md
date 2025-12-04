@@ -3,8 +3,9 @@
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
 [![License](https://img.shields.io/packagist/l/solophp/container.svg)](https://github.com/solophp/container/blob/main/LICENSE)
 [![PHP Version](https://img.shields.io/packagist/php-v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/solophp/container)
 
-A lightweight, PSR-11 compliant dependency injection container for PHP applications.
+A lightweight, PSR-11 compatible dependency injection container implementing `Solo\Contracts\Container\WritableContainerInterface`.
 
 ## Installation
 
@@ -41,7 +42,7 @@ $db = $container->get('database');
 
 ## Features
 
-- PSR-11 Compatible
+- Implements `WritableContainerInterface` from `solophp/contracts` (PSR-11 compatible)
 - Automatic dependency resolution
 - Interface binding
 - Singleton instances

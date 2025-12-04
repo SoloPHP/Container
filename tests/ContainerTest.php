@@ -157,4 +157,14 @@ class ContainerTest extends TestCase
         $this->assertInstanceOf(ClassWithDefaultParameters::class, $instance);
         $this->assertEquals('default', $instance->param);
     }
+
+    public function testGetThrowsContainerExceptionOnReflectionError(): void
+    {
+        $this->container->bind(TestInterface::class, 'NonExistentClass');
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('Cannot resolve service');
+
+        $this->container->get(TestInterface::class);
+    }
 }

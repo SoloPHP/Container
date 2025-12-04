@@ -1,12 +1,20 @@
 /vendor/
-/composer.lock
-/.phpunit.cache/
-/.phpunit.result.cache
-/.phpunit.cache/
-/coverage/
+composer.lock
+
+# PHPUnit
 .phpunit.cache/
 .phpunit.result.cache
-*.cache
-*.log
+
+# Coverage
+/coverage/
+coverage.xml
+
+# IDE
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
