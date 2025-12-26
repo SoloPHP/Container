@@ -17,7 +17,8 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "Solo\\Tests\\": "tests/"
+      "Solo\\Tests\\": "tests/",
+      "Solo\\Tests\\Fixtures\\": "tests/Fixtures/"
     }
   },
   "require": {
