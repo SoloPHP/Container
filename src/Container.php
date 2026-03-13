@@ -36,6 +36,15 @@ class Container implements WritableContainerInterface
     public function set(string $id, callable $factory): void
     {
         $this->services[$id] = $factory;
+        unset($this->instances[$id]);
+    }
+
+    /**
+     * Reset all cached instances, forcing re-resolution on next get()
+     */
+    public function reset(): void
+    {
+        $this->instances = [];
     }
 
     /**

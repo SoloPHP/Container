@@ -1,59 +1,58 @@
 # Solo PHP Container
 
+Lightweight PSR-11 dependency injection container with auto-wiring, interface binding, and singleton caching.
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
-[![License](https://img.shields.io/packagist/l/solophp/container.svg)](https://github.com/solophp/container/blob/main/LICENSE)
-[![PHP Version](https://img.shields.io/packagist/php-v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
+[![PHP Version](https://img.shields.io/badge/PHP-8.1%2B-8892BF.svg)](https://php.net/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/solophp/container)
 
-A lightweight, PSR-11 compatible dependency injection container implementing `Solo\Contracts\Container\WritableContainerInterface`.
+## Features
+
+- **PSR-11 Compatible** — Implements `WritableContainerInterface` from `solophp/contracts`
+- **Auto-wiring** — Automatic dependency resolution via constructor reflection
+- **Interface Binding** — Bind abstracts to concrete implementations
+- **Singleton Caching** — Each service resolved once and cached
+- **Cache Invalidation** — `set()` invalidates cached instance, `reset()` clears all
+- **Service Factories** — Register services as callable factories
 
 ## Installation
-
-You can install the package via composer:
 
 ```bash
 composer require solophp/container
 ```
 
-## Requirements
-
-- PHP 8.1 or higher
-- Composer 2.0 or higher
-
-## Basic Usage
+## Quick Example
 
 ```php
 use Solo\Container\Container;
 
-// Create a new container
 $container = new Container();
 
-// Register a service
-$container->set('database', function($container) {
-    return new Database('localhost', 'mydb', 'user', 'pass');
-});
+// Register a service factory
+$container->set(Database::class, fn($c) => new Database('localhost', 'mydb'));
 
-// Bind an interface to a concrete implementation
+// Bind interface to implementation
 $container->bind(LoggerInterface::class, FileLogger::class);
 
-// Get a service
-$db = $container->get('database');
+// Resolve with auto-wired dependencies
+$repo = $container->get(UserRepository::class);
 ```
 
-## Features
+## Usage
 
-- Implements `WritableContainerInterface` from `solophp/contracts` (PSR-11 compatible)
-- Automatic dependency resolution
-- Interface binding
-- Singleton instances
-- Constructor injection
-- Service factories
+### Constructor Registration
 
-## Advanced Usage
+```php
+$container = new Container([
+    'config' => fn() => new Config('config.php'),
+    'cache'  => fn($c) => new Cache($c->get('config')),
+]);
+```
 
-### Auto-Resolution
+### Auto-wiring
 
-The container can automatically resolve class dependencies:
+The container automatically resolves class dependencies via constructor reflection:
 
 ```php
 class UserRepository
@@ -64,17 +63,8 @@ class UserRepository
     ) {}
 }
 
-// The container will automatically resolve Database and LoggerInterface
-$userRepo = $container->get(UserRepository::class);
-```
-
-### Multiple Services Registration
-
-```php
-$container = new Container([
-    'config' => fn() => new Config('config.php'),
-    'cache' => fn($c) => new Cache($c->get('config')),
-]);
+// Database and LoggerInterface resolved automatically
+$repo = $container->get(UserRepository::class);
 ```
 
 ### Interface Binding
@@ -84,33 +74,35 @@ $container->bind(LoggerInterface::class, FileLogger::class);
 $container->bind(CacheInterface::class, RedisCache::class);
 ```
 
-## Development
+### Re-registering Services
 
-### Running Tests
+`set()` invalidates the cached instance, so the next `get()` uses the new factory:
 
-```bash
-composer test
+```php
+$container->set(Connection::class, fn() => new Connection('db1'));
+$conn1 = $container->get(Connection::class); // Connection to db1
+
+$container->set(Connection::class, fn() => new Connection('db2'));
+$conn2 = $container->get(Connection::class); // Connection to db2
 ```
 
-### Code Style
+### Resetting All Instances
 
-Check code style:
-```bash
-composer cs
-```
+When a root dependency changes and the entire dependency tree needs rebuilding:
 
-Fix code style:
-```bash
-composer cs-fix
+```php
+$container->reset(); // All cached instances cleared
 ```
 
 ## Error Handling
 
-The container throws two types of exceptions:
+- `Solo\Container\Exceptions\NotFoundException` — service not found
+- `Solo\Container\Exceptions\ContainerException` — service cannot be resolved
 
-- `Solo\Container\Exceptions\NotFoundException`: When a requested service is not found
-- `Solo\Container\Exceptions\ContainerException`: When there's an error resolving a service
+## Requirements
+
+- PHP 8.1+
 
 ## License
 
-The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
+MIT License. See [LICENSE](LICENSE) for details.

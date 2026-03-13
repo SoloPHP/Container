@@ -7,6 +7,7 @@ namespace Solo\Tests;
 class ConfigClass
 {
     public function __construct(
+        /** @var array<string, mixed> */
         public array $data
     ) {
     }
