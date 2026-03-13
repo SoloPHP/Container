@@ -31,9 +31,14 @@
     "phpstan/phpstan": "^2.1"
   },
   "scripts": {
-    "test": "phpunit",
-    "cs": "phpcs --standard=PSR12 src/ tests/",
-    "cs-fix": "phpcbf --standard=PSR12 src/ tests/"
+    "cs-check": "phpcs --standard=PSR12 src/ tests/",
+    "cs-fix": "phpcbf --standard=PSR12 src/ tests/",
+    "analyze": "phpstan analyze",
+    "test": [
+      "@cs-check",
+      "@analyze",
+      "phpunit"
+    ]
   },
   "minimum-stability": "dev",
   "prefer-stable": true

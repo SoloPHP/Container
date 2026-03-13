@@ -92,4 +92,29 @@ class ContainerTest extends TestCase
         $this->expectException(ContainerException::class);
         $this->container->get(ClassWithUnresolvable::class);
     }
+
+    public function testSetInvalidatesCachedInstance(): void
+    {
+        $this->container->set('conn', fn() => (object)['db' => 'db1']);
+        $first = $this->container->get('conn');
+        $this->assertSame('db1', $first->db);
+
+        $this->container->set('conn', fn() => (object)['db' => 'db2']);
+        $second = $this->container->get('conn');
+        $this->assertSame('db2', $second->db);
+        $this->assertNotSame($first, $second);
+    }
+
+    public function testResetClearsAllInstances(): void
+    {
+        $this->container->set('a', fn() => new stdClass());
+        $this->container->set('b', fn() => new stdClass());
+        $a1 = $this->container->get('a');
+        $b1 = $this->container->get('b');
+
+        $this->container->reset();
+
+        $this->assertNotSame($a1, $this->container->get('a'));
+        $this->assertNotSame($b1, $this->container->get('b'));
+    }
 }
