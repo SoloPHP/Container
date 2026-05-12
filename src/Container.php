@@ -11,10 +11,8 @@ use Solo\Contracts\Container\WritableContainerInterface;
 use Solo\Container\Exceptions\ContainerException;
 use Solo\Container\Exceptions\NotFoundException;
 
-/**
- * PSR-11 compatible Dependency Injection Container implementation
- */
-class Container implements WritableContainerInterface
+/** @no-named-arguments */
+final class Container implements WritableContainerInterface
 {
     /** @var array<string, callable> */
     private array $services = [];
@@ -25,12 +23,13 @@ class Container implements WritableContainerInterface
     /** @var array<string, class-string> */
     private array $bindings = [];
 
+    /** @var array<string, true> */
+    private array $resolving = [];
+
     /** @param array<string, callable> $services */
     public function __construct(array $services = [])
     {
-        foreach ($services as $id => $factory) {
-            $this->services[$id] = $factory;
-        }
+        $this->services = $services;
     }
 
     public function set(string $id, callable $factory): void
@@ -39,43 +38,25 @@ class Container implements WritableContainerInterface
         unset($this->instances[$id]);
     }
 
-    /**
-     * Reset all cached instances, forcing re-resolution on next get()
-     */
     public function reset(): void
     {
         $this->instances = [];
     }
 
-    /**
-     * Bind an abstract type to a concrete implementation
-     *
-     * @param string $abstract Abstract type identifier
-     * @param class-string $concrete Concrete class name
-     */
+    /** @param class-string $concrete */
     public function bind(string $abstract, string $concrete): void
     {
         $this->bindings[$abstract] = $concrete;
     }
 
-    /**
-     * Check if a service is registered
-     *
-     * @param string $id Service identifier
-     * @return bool Whether the service exists
-     */
     public function has(string $id): bool
     {
         return isset($this->services[$id]) || isset($this->bindings[$id]) || class_exists($id);
     }
 
     /**
-     * Get a service from the container
-     *
-     * @param string $id Service identifier
-     * @return mixed Resolved service
-     * @throws NotFoundException If the service is not found
-     * @throws ContainerException If the service cannot be resolved
+     * @throws NotFoundException
+     * @throws ContainerException
      */
     public function get(string $id): mixed
     {
@@ -83,14 +64,25 @@ class Container implements WritableContainerInterface
             return $this->instances[$id];
         }
 
-        if (isset($this->services[$id])) {
-            $resolved = $this->services[$id]($this);
-        } elseif (isset($this->bindings[$id])) {
-            $resolved = $this->get($this->bindings[$id]);
-        } elseif (class_exists($id)) {
-            $resolved = $this->resolve($id);
-        } else {
-            throw new NotFoundException("Service '$id' not found in container.");
+        if (isset($this->resolving[$id])) {
+            $chain = implode(' -> ', [...array_keys($this->resolving), $id]);
+            throw new ContainerException("Circular dependency detected: $chain");
+        }
+
+        $this->resolving[$id] = true;
+
+        try {
+            if (isset($this->services[$id])) {
+                $resolved = $this->services[$id]($this);
+            } elseif (isset($this->bindings[$id])) {
+                $resolved = $this->get($this->bindings[$id]);
+            } elseif (class_exists($id)) {
+                $resolved = $this->resolve($id);
+            } else {
+                throw new NotFoundException("Service '$id' not found in container.");
+            }
+        } finally {
+            unset($this->resolving[$id]);
         }
 
         $this->instances[$id] = $resolved;
@@ -99,11 +91,8 @@ class Container implements WritableContainerInterface
     }
 
     /**
-     * Resolve a class by reflection
-     *
-     * @param class-string $id Class name to resolve
-     * @return object Resolved instance
-     * @throws ContainerException If the class cannot be instantiated
+     * @param class-string $id
+     * @throws ContainerException
      */
     private function resolve(string $id): object
     {
@@ -123,11 +112,7 @@ class Container implements WritableContainerInterface
         );
     }
 
-    /**
-     * Resolve a single constructor parameter
-     *
-     * @throws ContainerException If the parameter cannot be resolved
-     */
+    /** @throws ContainerException */
     private function resolveParameter(ReflectionParameter $param): mixed
     {
         $type = $param->getType();

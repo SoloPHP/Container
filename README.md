@@ -15,6 +15,7 @@ Lightweight PSR-11 dependency injection container with auto-wiring, interface bi
 - **Singleton Caching** — Each service resolved once and cached
 - **Cache Invalidation** — `set()` invalidates cached instance, `reset()` clears all
 - **Service Factories** — Register services as callable factories
+- **Circular Dependency Detection** — Cycles in bindings or auto-wiring fail fast with a readable chain
 
 ## Installation
 
@@ -94,10 +95,24 @@ When a root dependency changes and the entire dependency tree needs rebuilding:
 $container->reset(); // All cached instances cleared
 ```
 
+### Circular Dependencies
+
+Cycles are detected and throw `ContainerException` with the full resolution chain:
+
+```php
+class A { public function __construct(public B $b) {} }
+class B { public function __construct(public A $a) {} }
+
+$container->get(A::class);
+// ContainerException: Circular dependency detected: A -> B -> A
+```
+
+The same applies to recursive bindings (`bind(A, B); bind(B, A)`) and factories that call `$c->get()` on themselves.
+
 ## Error Handling
 
 - `Solo\Container\Exceptions\NotFoundException` — service not found
-- `Solo\Container\Exceptions\ContainerException` — service cannot be resolved
+- `Solo\Container\Exceptions\ContainerException` — service cannot be resolved (non-instantiable, unresolvable parameter, or circular dependency)
 
 ## Requirements
 
