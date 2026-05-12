@@ -10,6 +10,8 @@ use Solo\Container\Container;
 use Solo\Container\Exceptions\ContainerException;
 use Solo\Container\Exceptions\NotFoundException;
 use Solo\Tests\Fixtures\AbstractService;
+use Solo\Tests\Fixtures\CircularA;
+use Solo\Tests\Fixtures\CircularB;
 use Solo\Tests\Fixtures\ClassWithDefaultParam;
 use Solo\Tests\Fixtures\ClassWithDependency;
 use Solo\Tests\Fixtures\ClassWithUnresolvable;
@@ -66,6 +68,13 @@ class ContainerTest extends TestCase
         $this->assertInstanceOf(stdClass::class, $resolved->dependency);
     }
 
+    public function testAutoResolveClassWithoutConstructor(): void
+    {
+        $resolved = $this->container->get(stdClass::class);
+
+        $this->assertInstanceOf(stdClass::class, $resolved);
+    }
+
     public function testDefaultParameterValues(): void
     {
         $resolved = $this->container->get(ClassWithDefaultParam::class);
@@ -103,6 +112,43 @@ class ContainerTest extends TestCase
         $second = $this->container->get('conn');
         $this->assertSame('db2', $second->db);
         $this->assertNotSame($first, $second);
+    }
+
+    public function testDetectsSelfBindingCycle(): void
+    {
+        $this->container->bind(stdClass::class, stdClass::class);
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('Circular dependency detected: stdClass -> stdClass');
+        $this->container->get(stdClass::class);
+    }
+
+    public function testDetectsTwoStepBindingCycle(): void
+    {
+        $this->container->bind(stdClass::class, \ArrayObject::class);
+        $this->container->bind(\ArrayObject::class, stdClass::class);
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('Circular dependency detected: stdClass -> ArrayObject -> stdClass');
+        $this->container->get(stdClass::class);
+    }
+
+    public function testDetectsAutoResolveCycle(): void
+    {
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessageMatches(
+            '/Circular dependency detected: \S+CircularA -> \S+CircularB -> \S+CircularA/'
+        );
+        $this->container->get(CircularA::class);
+    }
+
+    public function testDetectsCycleInFactory(): void
+    {
+        $this->container->set('self', fn($c) => $c->get('self'));
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('Circular dependency detected: self -> self');
+        $this->container->get('self');
     }
 
     public function testResetClearsAllInstances(): void
