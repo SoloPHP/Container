@@ -10,11 +10,15 @@ use Solo\Container\Container;
 use Solo\Container\Exceptions\ContainerException;
 use Solo\Container\Exceptions\NotFoundException;
 use Solo\Tests\Fixtures\AbstractService;
+use Solo\Tests\Fixtures\AttrCircularA;
+use Solo\Tests\Fixtures\AttrCircularB;
 use Solo\Tests\Fixtures\CircularA;
 use Solo\Tests\Fixtures\CircularB;
 use Solo\Tests\Fixtures\ClassWithDefaultParam;
 use Solo\Tests\Fixtures\ClassWithDependency;
 use Solo\Tests\Fixtures\ClassWithUnresolvable;
+use Solo\Tests\Fixtures\NeedsLazyDependency;
+use ReflectionClass;
 use stdClass;
 
 class ContainerTest extends TestCase
@@ -24,6 +28,16 @@ class ContainerTest extends TestCase
     protected function setUp(): void
     {
         $this->container = new Container();
+    }
+
+    private function assertLazyUninitialized(object $proxy): void
+    {
+        $this->assertTrue((new ReflectionClass($proxy::class))->isUninitializedLazyObject($proxy));
+    }
+
+    private function assertNotLazy(object $object): void
+    {
+        $this->assertFalse((new ReflectionClass($object::class))->isUninitializedLazyObject($object));
     }
 
     public function testImplementsPsr11Interface(): void
@@ -162,5 +176,140 @@ class ContainerTest extends TestCase
 
         $this->assertNotSame($a1, $this->container->get('a'));
         $this->assertNotSame($b1, $this->container->get('b'));
+    }
+
+    public function testLazyResolvesToUninitializedProxy(): void
+    {
+        $this->container->lazy(ClassWithDependency::class);
+
+        $proxy = $this->container->get(ClassWithDependency::class);
+
+        $this->assertInstanceOf(ClassWithDependency::class, $proxy);
+        $this->assertLazyUninitialized($proxy);
+
+        // First property access transparently builds the real instance.
+        $this->assertInstanceOf(stdClass::class, $proxy->dependency);
+    }
+
+    public function testLazyProxyIsSingleton(): void
+    {
+        $this->container->lazy(ClassWithDependency::class);
+
+        $this->assertSame(
+            $this->container->get(ClassWithDependency::class),
+            $this->container->get(ClassWithDependency::class)
+        );
+    }
+
+    public function testLazyBreaksCircularDependency(): void
+    {
+        $this->container->lazy(CircularB::class);
+
+        $a = $this->container->get(CircularA::class);
+
+        $this->assertInstanceOf(CircularA::class, $a);
+        $this->assertInstanceOf(CircularB::class, $a->b);
+        // The proxy resolves back to the shared CircularA instance on access.
+        $this->assertSame($a, $a->b->a);
+        // get() returns the same cached proxy that was injected.
+        $this->assertSame($a->b, $this->container->get(CircularB::class));
+    }
+
+    public function testLazyOnNonInstantiableClassThrows(): void
+    {
+        $this->container->lazy(AbstractService::class);
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('is not instantiable');
+        $this->container->get(AbstractService::class);
+    }
+
+    public function testLazyOnMissingIdThrowsNotFound(): void
+    {
+        $this->container->lazy('App\\Missing');
+
+        $this->expectException(NotFoundException::class);
+        $this->container->get('App\\Missing');
+    }
+
+    public function testLazyOnCyclicBindingThrowsInsteadOfHanging(): void
+    {
+        $this->container->bind(stdClass::class, \ArrayObject::class);
+        $this->container->bind(\ArrayObject::class, stdClass::class);
+        $this->container->lazy(stdClass::class);
+
+        // The $seen guard in concreteClass() must break the binding cycle and
+        // surface a ContainerException rather than looping forever.
+        $this->expectException(ContainerException::class);
+        $this->container->get(stdClass::class);
+    }
+
+    public function testLazyOnUnproxyableInternalClassThrows(): void
+    {
+        $this->container->lazy(\ArrayObject::class);
+
+        // ArrayObject is instantiable but internal: newLazyProxy() throws a raw
+        // \Error that newProxy() must wrap as a ContainerException.
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('Cannot create a lazy proxy');
+        $this->container->get(\ArrayObject::class);
+    }
+
+    public function testLazyAfterEagerResolutionInvalidatesCache(): void
+    {
+        $real = $this->container->get(ClassWithDependency::class);
+        $this->assertNotLazy($real);
+
+        $this->container->lazy(ClassWithDependency::class);
+
+        $proxy = $this->container->get(ClassWithDependency::class);
+        $this->assertNotSame($real, $proxy);
+        $this->assertLazyUninitialized($proxy);
+    }
+
+    public function testLazyResolvesBoundInterfaceToConcreteProxy(): void
+    {
+        $this->container->bind(ContainerInterface::class, Container::class);
+        $this->container->lazy(ContainerInterface::class);
+
+        $proxy = $this->container->get(ContainerInterface::class);
+
+        $this->assertInstanceOf(ContainerInterface::class, $proxy);
+        $this->assertInstanceOf(Container::class, $proxy);
+        $this->assertLazyUninitialized($proxy);
+    }
+
+    public function testNullReturningFactoryIsCached(): void
+    {
+        $calls = 0;
+        $this->container->set('config', function () use (&$calls) {
+            $calls++;
+            return null;
+        });
+
+        $this->assertNull($this->container->get('config'));
+        $this->assertNull($this->container->get('config'));
+        $this->assertSame(1, $calls);
+    }
+
+    public function testLazyAttributeInjectsUninitializedProxy(): void
+    {
+        $resolved = $this->container->get(NeedsLazyDependency::class);
+
+        $this->assertInstanceOf(ClassWithDependency::class, $resolved->dependency);
+        $this->assertLazyUninitialized($resolved->dependency);
+
+        // First member access transparently builds the real instance.
+        $this->assertInstanceOf(stdClass::class, $resolved->dependency->dependency);
+    }
+
+    public function testLazyAttributeBreaksCircularDependency(): void
+    {
+        $a = $this->container->get(AttrCircularA::class);
+
+        $this->assertInstanceOf(AttrCircularA::class, $a);
+        $this->assertInstanceOf(AttrCircularB::class, $a->b);
+        // The #[Lazy] proxy resolves back to the shared AttrCircularA on access.
+        $this->assertSame($a, $a->b->a);
     }
 }
