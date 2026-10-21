@@ -16,6 +16,7 @@ Lightweight PSR-11 dependency injection container with auto-wiring, interface bi
 - **Cache Invalidation** — `set()` invalidates cached instance, `reset()` clears all
 - **Service Factories** — Register services as callable factories
 - **Lazy Resolution** — `lazy()` (by id) and `#[Lazy]` (by injection point) defer construction via native proxies and break cycles
+- **Injection by Id** — `#[Inject('id')]` resolves a parameter from a service id when its type cannot tell dependencies apart
 - **Circular Dependency Detection** — Cycles in bindings or auto-wiring fail fast with a readable chain
 
 ## Installation
@@ -142,6 +143,39 @@ A `#[Lazy]` interface parameter is proxied through its binding to the concrete c
 > The injected value is a proxy, so `$obj->dep !== $container->get(Dep::class)` by identity
 > even though both forward to the same instance. A lazy id whose factory yields a
 > non-object surfaces the type error on first access, not at `get()`.
+
+### Injecting by Id — `#[Inject]`
+
+Auto-wiring resolves a parameter by its type. When the type cannot tell dependencies
+apart — several instances of one class, configuration values — put `#[Inject]` on the
+parameter to resolve it from a service id instead:
+
+```php
+use Solo\Container\Attribute\Inject;
+
+$container->set('db.primary', fn() => new Connection($primaryDsn));
+$container->set('db.replica', fn() => new Connection($replicaDsn));
+$container->set('app.name', fn() => 'Shop');
+
+class Reports
+{
+    public function __construct(
+        #[Inject('db.primary')] private Connection $writes,
+        #[Inject('db.replica')] private Connection $reads,
+        #[Inject('app.name')] private string $appName,
+    ) {}
+}
+```
+
+The parameter receives what `get($id)` returns, so it shares the singleton. An absent id
+throws `NotFoundException`. A class or interface type is checked against the value:
+another type, or `null` for a non-nullable parameter, throws `ContainerException`. Other
+types (`string`, `array`, unions) take the value as it is and leave the check to PHP.
+
+With `#[Lazy]` the parameter gets a proxy that resolves the id on first use. The proxy is
+built from the class the declared type resolves to (directly or through a binding), so that
+class must be instantiable and the id must yield an instance of exactly it — a subclass,
+another implementation or `null` throws `ContainerException` on first use.
 
 ### Circular Dependencies
 

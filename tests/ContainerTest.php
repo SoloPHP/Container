@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Solo\Container\Container;
@@ -16,8 +17,17 @@ use Solo\Tests\Fixtures\CircularA;
 use Solo\Tests\Fixtures\CircularB;
 use Solo\Tests\Fixtures\ClassWithDefaultParam;
 use Solo\Tests\Fixtures\ClassWithDependency;
+use Solo\Tests\Fixtures\ClassWithDependencySubclass;
 use Solo\Tests\Fixtures\ClassWithUnresolvable;
+use Solo\Tests\Fixtures\NeedsInjectedSelf;
+use Solo\Tests\Fixtures\NeedsInjectedServices;
+use Solo\Tests\Fixtures\NeedsInjectedValue;
+use Solo\Tests\Fixtures\NeedsInjectWithoutId;
 use Solo\Tests\Fixtures\NeedsLazyDependency;
+use Solo\Tests\Fixtures\NeedsLazyInjected;
+use Solo\Tests\Fixtures\NeedsLazyInjectedContainer;
+use Solo\Tests\Fixtures\NeedsOptionalInjected;
+use ArrayObject;
 use ReflectionClass;
 use stdClass;
 
@@ -139,8 +149,8 @@ class ContainerTest extends TestCase
 
     public function testDetectsTwoStepBindingCycle(): void
     {
-        $this->container->bind(stdClass::class, \ArrayObject::class);
-        $this->container->bind(\ArrayObject::class, stdClass::class);
+        $this->container->bind(stdClass::class, ArrayObject::class);
+        $this->container->bind(ArrayObject::class, stdClass::class);
 
         $this->expectException(ContainerException::class);
         $this->expectExceptionMessage('Circular dependency detected: stdClass -> ArrayObject -> stdClass');
@@ -234,8 +244,8 @@ class ContainerTest extends TestCase
 
     public function testLazyOnCyclicBindingThrowsInsteadOfHanging(): void
     {
-        $this->container->bind(stdClass::class, \ArrayObject::class);
-        $this->container->bind(\ArrayObject::class, stdClass::class);
+        $this->container->bind(stdClass::class, ArrayObject::class);
+        $this->container->bind(ArrayObject::class, stdClass::class);
         $this->container->lazy(stdClass::class);
 
         // The $seen guard in concreteClass() must break the binding cycle and
@@ -246,13 +256,13 @@ class ContainerTest extends TestCase
 
     public function testLazyOnUnproxyableInternalClassThrows(): void
     {
-        $this->container->lazy(\ArrayObject::class);
+        $this->container->lazy(ArrayObject::class);
 
         // ArrayObject is instantiable but internal: newLazyProxy() throws a raw
         // \Error that newProxy() must wrap as a ContainerException.
         $this->expectException(ContainerException::class);
         $this->expectExceptionMessage('Cannot create a lazy proxy');
-        $this->container->get(\ArrayObject::class);
+        $this->container->get(ArrayObject::class);
     }
 
     public function testLazyAfterEagerResolutionInvalidatesCache(): void
@@ -311,5 +321,155 @@ class ContainerTest extends TestCase
         $this->assertInstanceOf(AttrCircularB::class, $a->b);
         // The #[Lazy] proxy resolves back to the shared AttrCircularA on access.
         $this->assertSame($a, $a->b->a);
+    }
+
+    public function testInjectResolvesParametersById(): void
+    {
+        $primary = new stdClass();
+        $secondary = new stdClass();
+        $this->container->set('primary', fn() => $primary);
+        $this->container->set('secondary', fn() => $secondary);
+
+        $resolved = $this->container->get(NeedsInjectedServices::class);
+
+        $this->assertSame($primary, $resolved->primary);
+        $this->assertSame($secondary, $resolved->secondary);
+    }
+
+    public function testInjectPassesNonClassValuesAsTheyAre(): void
+    {
+        $this->container->set('app.name', fn() => 'Solo');
+
+        $this->assertSame('Solo', $this->container->get(NeedsInjectedValue::class)->name);
+    }
+
+    public function testInjectOnMissingIdThrowsNotFound(): void
+    {
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessage("Service 'primary' not found in container.");
+
+        $this->container->get(NeedsInjectedServices::class);
+    }
+
+    #[DataProvider('notAStdClass')]
+    public function testInjectRejectsAValueTheTypeDoesNotAccept(mixed $value): void
+    {
+        $this->container->set('primary', fn() => $value);
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage(
+            "Service 'primary' injected into '\$primary' in class '" . NeedsInjectedServices::class
+            . "' is " . get_debug_type($value) . ', not stdClass.'
+        );
+
+        $this->container->get(NeedsInjectedServices::class);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public static function notAStdClass(): iterable
+    {
+        yield 'another class' => [new ArrayObject()];
+        yield 'null for a non-nullable parameter' => [null];
+    }
+
+    public function testInjectPassesNullToNullableParameter(): void
+    {
+        $this->container->set('optional', fn() => null);
+
+        $this->assertNull($this->container->get(NeedsOptionalInjected::class)->optional);
+    }
+
+    public function testInjectWithLazyResolvesTheIdOnFirstUse(): void
+    {
+        $calls = 0;
+        $this->container->set('dependency', function () use (&$calls) {
+            $calls++;
+            return new ClassWithDependency(new stdClass());
+        });
+
+        $resolved = $this->container->get(NeedsLazyInjected::class);
+
+        $this->assertLazyUninitialized($resolved->dependency);
+        $this->assertSame(0, $calls);
+        $this->assertInstanceOf(stdClass::class, $resolved->dependency->dependency);
+        $this->assertSame(1, $calls);
+    }
+
+    #[DataProvider('notExactlyTheProxiedClass')]
+    public function testInjectWithLazyChecksTheExactClassOnFirstUse(mixed $value): void
+    {
+        $this->container->set('dependency', fn() => $value);
+        $resolved = $this->container->get(NeedsLazyInjected::class);
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage('is ' . get_debug_type($value) . ', not ' . ClassWithDependency::class . '.');
+
+        $this->assertNotNull($resolved->dependency->dependency);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public static function notExactlyTheProxiedClass(): iterable
+    {
+        yield 'another class' => [new stdClass()];
+        yield 'a subclass' => [new ClassWithDependencySubclass(new stdClass())];
+        yield 'null' => [null];
+    }
+
+    public function testInjectWithLazyProxiesAnInterfaceThroughItsBinding(): void
+    {
+        $inner = new Container();
+        $inner->set('marker', fn() => 'inner');
+        $this->container->set('container', fn() => $inner);
+        $this->container->bind(ContainerInterface::class, Container::class);
+
+        $resolved = $this->container->get(NeedsLazyInjectedContainer::class);
+
+        $this->assertLazyUninitialized($resolved->container);
+        $this->assertSame('inner', $resolved->container->get('marker'));
+    }
+
+    public function testInjectWithLazyOnUnboundInterfaceThrowsContainerException(): void
+    {
+        $this->container->set('container', fn() => new Container());
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage(
+            "type '" . ContainerInterface::class . "' does not resolve to an instantiable class."
+        );
+
+        $this->container->get(NeedsLazyInjectedContainer::class);
+    }
+
+    public function testLazyInjectionForwardsToTheInstanceBehindALazyService(): void
+    {
+        $this->container->lazy(ClassWithDependency::class);
+        $this->container->bind('dependency', ClassWithDependency::class);
+
+        $direct = $this->container->get(NeedsLazyDependency::class)->dependency;
+        $injected = $this->container->get(NeedsLazyInjected::class)->dependency;
+
+        // Both proxies and the service's own proxy share one real instance.
+        $marker = new stdClass();
+        $direct->dependency = $marker;
+        $this->assertSame($marker, $injected->dependency);
+        $this->assertSame($marker, $this->container->get(ClassWithDependency::class)->dependency);
+    }
+
+    public function testInjectResolvesSelfTypedParameter(): void
+    {
+        $peer = new NeedsInjectedSelf(null);
+        $this->container->set('peer', fn() => $peer);
+
+        $this->assertSame($peer, $this->container->get(NeedsInjectedSelf::class)->peer);
+    }
+
+    public function testInjectWithoutIdThrowsContainerException(): void
+    {
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage(
+            "Invalid #[Inject] on '\$service' in class '" . NeedsInjectWithoutId::class . "'"
+        );
+
+        $this->container->get(NeedsInjectWithoutId::class);
     }
 }
