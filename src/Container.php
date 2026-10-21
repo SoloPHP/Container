@@ -7,6 +7,7 @@ namespace Solo\Container;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
+use Solo\Container\Attribute\Inject;
 use Solo\Container\Attribute\Lazy;
 use Solo\Contracts\Container\WritableContainerInterface;
 use Solo\Container\Exceptions\ContainerException;
@@ -129,6 +130,7 @@ final class Container implements WritableContainerInterface
      * or get() for a #[Lazy] parameter, a transient reference that should reach
      * the shared singleton.
      *
+     * @param callable(): object $initializer
      * @throws NotFoundException
      * @throws ContainerException
      */
@@ -151,12 +153,21 @@ final class Container implements WritableContainerInterface
 
     /**
      * @param class-string $class
+     * @param callable(): object $initializer
      * @throws ContainerException
      */
     private function newProxy(string $class, callable $initializer): object
     {
+        // A proxy must forward to a real instance, so when the initializer yields
+        // another lazy object (an id marked lazy()) it gets the instance behind it.
+        $forward = static function () use ($initializer): object {
+            $instance = $initializer();
+
+            return (new ReflectionClass($instance))->initializeLazyObject($instance);
+        };
+
         try {
-            return $this->reflect($class)->newLazyProxy($initializer);
+            return $this->reflect($class)->newLazyProxy($forward);
         } catch (\Error $e) {
             throw new ContainerException(
                 "Cannot create a lazy proxy for '$class': {$e->getMessage()}.",
@@ -224,14 +235,18 @@ final class Container implements WritableContainerInterface
     /** @throws ContainerException */
     private function resolveParameter(ReflectionParameter $param): mixed
     {
-        $type = $param->getType();
+        $name = $this->classType($param);
+        // #[Lazy] only applies to class/interface dependencies; on any other
+        // parameter shape it is silently ignored.
+        $lazy = $name !== null && $param->getAttributes(Lazy::class) !== [];
+        $id = $this->injectedId($param);
 
-        if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
-            $name = $type->getName();
+        if ($id !== null) {
+            return $this->resolveById($param, $id, $name, $lazy);
+        }
 
-            // #[Lazy] only applies to class/interface dependencies; on any other
-            // parameter shape it is absent here and silently ignored.
-            if ($param->getAttributes(Lazy::class) !== []) {
+        if ($name !== null) {
+            if ($lazy) {
                 return $this->lazyProxy($name, fn(): object => $this->get($name));
             }
 
@@ -242,8 +257,95 @@ final class Container implements WritableContainerInterface
             return $param->getDefaultValue();
         }
 
+        throw new ContainerException("Cannot resolve parameter {$this->describe($param)}.");
+    }
+
+    /**
+     * The class or interface a parameter is typed with, or null for an untyped,
+     * builtin, union or intersection type.
+     */
+    private function classType(ReflectionParameter $param): ?string
+    {
+        $type = $param->getType();
+
+        if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
+            return null;
+        }
+
+        $name = $type->getName();
+
+        // `self` and `parent` are relative to the declaring class, not class names of their own.
+        return match (strtolower($name)) {
+            'self' => $param->getDeclaringClass()?->getName(),
+            'parent' => ($param->getDeclaringClass()?->getParentClass() ?: null)?->getName(),
+            default => $name,
+        };
+    }
+
+    /** @throws ContainerException */
+    private function injectedId(ReflectionParameter $param): ?string
+    {
+        try {
+            return ($param->getAttributes(Inject::class)[0] ?? null)?->newInstance()->id;
+        } catch (\Error $e) {
+            throw new ContainerException(
+                "Invalid #[Inject] on {$this->describe($param)}: {$e->getMessage()}.",
+                0,
+                $e
+            );
+        }
+    }
+
+    /**
+     * Resolve an #[Inject] parameter from its service id. A class or interface type is
+     * checked against what the id yields; with #[Lazy] the parameter gets a proxy of the
+     * class that type resolves to, which resolves the id on first use. Other types take
+     * the value as it is.
+     *
+     * @throws NotFoundException
+     * @throws ContainerException
+     */
+    private function resolveById(ReflectionParameter $param, string $id, ?string $type, bool $lazy): mixed
+    {
+        if ($type === null) {
+            return $this->get($id);
+        }
+
+        if ($lazy) {
+            $at = $this->describe($param);
+            $class = $this->concreteClass($type) ?? throw new ContainerException(
+                "Cannot create a lazy proxy for $at: type '$type' does not resolve to an instantiable class."
+            );
+
+            // A proxy forwards only to an instance of exactly its own class: not a
+            // subclass, and never null.
+            return $this->newProxy($class, function () use ($id, $at, $class): object {
+                $value = $this->get($id);
+
+                return is_object($value) && $value::class === $class
+                    ? $value
+                    : throw $this->mismatch($id, $at, $value, $class);
+            });
+        }
+
+        $value = $this->get($id);
+
+        return $value instanceof $type || ($value === null && $param->allowsNull())
+            ? $value
+            : throw $this->mismatch($id, $this->describe($param), $value, $type);
+    }
+
+    private function mismatch(string $id, string $at, mixed $value, string $type): ContainerException
+    {
+        return new ContainerException(
+            "Service '$id' injected into $at is " . get_debug_type($value) . ", not $type."
+        );
+    }
+
+    private function describe(ReflectionParameter $param): string
+    {
         $class = $param->getDeclaringClass()?->getName() ?? 'unknown';
 
-        throw new ContainerException("Cannot resolve parameter '\${$param->getName()}' in class '$class'.");
+        return "'\${$param->getName()}' in class '$class'";
     }
 }
