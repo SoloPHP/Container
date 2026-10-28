@@ -18,3 +18,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Docs
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

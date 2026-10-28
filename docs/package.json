@@ -1,0 +1,14 @@
+{
+  "name": "solo-container-docs",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Documentation for Solo Container",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
