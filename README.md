@@ -1,23 +1,11 @@
-# Solo PHP Container
-
-Lightweight PSR-11 dependency injection container with auto-wiring, interface binding, and singleton caching.
+# Solo Container
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/container.svg)](https://packagist.org/packages/solophp/container)
 [![PHP Version](https://img.shields.io/badge/PHP-8.4%2B-8892BF.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/solophp/container)
 
-## Features
-
-- **PSR-11 Compatible** — Implements `WritableContainerInterface` from `solophp/contracts`
-- **Auto-wiring** — Automatic dependency resolution via constructor reflection
-- **Interface Binding** — Bind abstracts to concrete implementations
-- **Singleton Caching** — Each service resolved once and cached
-- **Cache Invalidation** — `set()` invalidates cached instance, `reset()` clears all
-- **Service Factories** — Register services as callable factories
-- **Lazy Resolution** — `lazy()` (by id) and `#[Lazy]` (by injection point) defer construction via native proxies and break cycles
-- **Injection by Id** — `#[Inject('id')]` resolves a parameter from a service id when its type cannot tell dependencies apart
-- **Circular Dependency Detection** — Cycles in bindings or auto-wiring fail fast with a readable chain
+Lightweight PSR-11 dependency injection container for PHP 8.4+. Register factories, bind interfaces to implementations and let constructor auto-wiring build the rest: each service is built once and shared. `get(Foo::class)` returns a `Foo` or throws — the container checks it — and PHPStan sees it as a `Foo`, so code analysed at level max needs no casts after it.
 
 ## Installation
 
@@ -25,193 +13,45 @@ Lightweight PSR-11 dependency injection container with auto-wiring, interface bi
 composer require solophp/container
 ```
 
-## Quick Example
+Requires PHP 8.4+: `lazy()` and `#[Lazy]` build native lazy objects.
+
+## Example
 
 ```php
 use Solo\Container\Container;
 
 $container = new Container();
 
-// Register a service factory
-$container->set(Database::class, fn($c) => new Database('localhost', 'mydb'));
+// A factory receives the container
+$container->set(Database::class, fn($c) => new Database($c->get(Config::class)->dsn));
 
-// Bind interface to implementation
+// An interface resolves to the class bound to it, which must implement it
 $container->bind(LoggerInterface::class, FileLogger::class);
 
-// Resolve with auto-wired dependencies
-$repo = $container->get(UserRepository::class);
+// Anything else is built from its constructor
+$users = $container->get(UserRepository::class); // a UserRepository, to PHPStan as well
 ```
 
-## Usage
+`lazy()` and `#[Lazy]` defer construction and break circular dependencies; `#[Inject('id')]` resolves a parameter its type cannot tell apart. Service providers typed against `WritableContainerInterface` from `solophp/contracts` get the same typed `get()`.
 
-### Constructor Registration
+Upgrading from 3.x? See [Upgrading to 4.0](https://solophp.github.io/Container/guide/upgrading).
 
-```php
-$container = new Container([
-    'config' => fn() => new Config('config.php'),
-    'cache'  => fn($c) => new Cache($c->get('config')),
-]);
-```
+## Documentation
 
-### Auto-wiring
+**[Full Documentation](https://solophp.github.io/Container/)**
 
-The container automatically resolves class dependencies via constructor reflection:
-
-```php
-class UserRepository
-{
-    public function __construct(
-        private Database $database,
-        private LoggerInterface $logger
-    ) {}
-}
-
-// Database and LoggerInterface resolved automatically
-$repo = $container->get(UserRepository::class);
-```
-
-### Interface Binding
-
-```php
-$container->bind(LoggerInterface::class, FileLogger::class);
-$container->bind(CacheInterface::class, RedisCache::class);
-```
-
-### Re-registering Services
-
-`set()` invalidates the cached instance, so the next `get()` uses the new factory:
-
-```php
-$container->set(Connection::class, fn() => new Connection('db1'));
-$conn1 = $container->get(Connection::class); // Connection to db1
-
-$container->set(Connection::class, fn() => new Connection('db2'));
-$conn2 = $container->get(Connection::class); // Connection to db2
-```
-
-### Resetting All Instances
-
-When a root dependency changes and the entire dependency tree needs rebuilding:
-
-```php
-$container->reset(); // All cached instances cleared
-```
-
-### Lazy Services — `lazy()`
-
-`lazy()` marks an id so the container resolves it to a **native lazy proxy** instead of
-the real instance. The proxy is returned immediately and constructs the real object only
-on first use:
-
-```php
-$container->lazy(ReportBuilder::class);
-
-$proxy = $container->get(ReportBuilder::class); // not constructed yet
-$proxy->generate();                             // constructed on first access
-```
-
-The proxy is a real instance of the class — it satisfies type hints and is cached as a
-singleton. The id may be bound: the proxy is built from the bound concrete class, so it
-still satisfies the abstract type:
-
-```php
-$container->bind(LoggerInterface::class, FileLogger::class);
-$container->lazy(LoggerInterface::class); // get(LoggerInterface::class) yields a proxy
-```
-
-The id must resolve (directly or through a binding) to an instantiable class. An absent id
-throws `NotFoundException`; an id that resolves to a non-class (e.g. a plain factory
-service) throws `ContainerException`. Marking an id lazy also invalidates any instance
-already cached for it, mirroring `set()`.
-
-### Lazy Injection Points — `#[Lazy]`
-
-To make a single constructor dependency lazy without changing how the service resolves
-elsewhere, put `#[Lazy]` on the parameter. The proxy resolves to the same shared instance
-`get()` would return:
-
-```php
-use Solo\Container\Attribute\Lazy;
-
-class Mailer { public function __construct(#[Lazy] private Templates $templates) {} }
-```
-
-`#[Lazy]` and `lazy()` are complementary: `lazy($id)` is container-level (one decision, no
-change to consumer classes); `#[Lazy]` is per-injection-point (precise, self-documenting).
-A `#[Lazy]` interface parameter is proxied through its binding to the concrete class.
-
-> The injected value is a proxy, so `$obj->dep !== $container->get(Dep::class)` by identity
-> even though both forward to the same instance. A lazy id whose factory yields a
-> non-object surfaces the type error on first access, not at `get()`.
-
-### Injecting by Id — `#[Inject]`
-
-Auto-wiring resolves a parameter by its type. When the type cannot tell dependencies
-apart — several instances of one class, configuration values — put `#[Inject]` on the
-parameter to resolve it from a service id instead:
-
-```php
-use Solo\Container\Attribute\Inject;
-
-$container->set('db.primary', fn() => new Connection($primaryDsn));
-$container->set('db.replica', fn() => new Connection($replicaDsn));
-$container->set('app.name', fn() => 'Shop');
-
-class Reports
-{
-    public function __construct(
-        #[Inject('db.primary')] private Connection $writes,
-        #[Inject('db.replica')] private Connection $reads,
-        #[Inject('app.name')] private string $appName,
-    ) {}
-}
-```
-
-The parameter receives what `get($id)` returns, so it shares the singleton. An absent id
-throws `NotFoundException`. A class or interface type is checked against the value:
-another type, or `null` for a non-nullable parameter, throws `ContainerException`. Other
-types (`string`, `array`, unions) take the value as it is and leave the check to PHP.
-
-With `#[Lazy]` the parameter gets a proxy that resolves the id on first use. The proxy is
-built from the class the declared type resolves to (directly or through a binding), so that
-class must be instantiable and the id must yield an instance of exactly it — a subclass,
-another implementation or `null` throws `ContainerException` on first use.
-
-### Circular Dependencies
-
-By default cycles are detected and throw `ContainerException` with the full resolution chain:
-
-```php
-class A { public function __construct(public B $b) {} }
-class B { public function __construct(public A $a) {} }
-
-$container->get(A::class);
-// ContainerException: Circular dependency detected: A -> B -> A
-```
-
-The same applies to recursive bindings (`bind(A, B); bind(B, A)`) and factories that call `$c->get()` on themselves.
-
-To break a genuine cycle, make one participant lazy — container-level with `lazy()`, or at
-the exact injection point with `#[Lazy]`. The lazy side is injected as a proxy, so the
-other constructor completes without re-entering resolution:
-
-```php
-$container->lazy(B::class);                                          // B is always a proxy
-// — or, only this edge —
-class A { public function __construct(#[Lazy] public B $b) {} }
-
-$a = $container->get(A::class); // resolves; $a->b is a lazy proxy, and $a->b->a === $a
-```
-
-## Error Handling
-
-- `Solo\Container\Exceptions\NotFoundException` — service not found
-- `Solo\Container\Exceptions\ContainerException` — service cannot be resolved (non-instantiable, unresolvable parameter, or circular dependency)
-
-## Requirements
-
-- PHP 8.4+ (uses native lazy objects for `lazy()` and `#[Lazy]`)
+- [Installation](https://solophp.github.io/Container/guide/installation)
+- [Quick Start](https://solophp.github.io/Container/guide/quick-start)
+- [Static Analysis](https://solophp.github.io/Container/guide/static-analysis)
+- [Upgrading to 4.0](https://solophp.github.io/Container/guide/upgrading)
+- [Services & Factories](https://solophp.github.io/Container/features/services)
+- [Auto-wiring](https://solophp.github.io/Container/features/autowiring)
+- [Interface Binding](https://solophp.github.io/Container/features/binding)
+- [Lazy Services](https://solophp.github.io/Container/features/lazy)
+- [Injection by Id](https://solophp.github.io/Container/features/inject)
+- [Circular Dependencies](https://solophp.github.io/Container/features/circular-dependencies)
+- [API Reference](https://solophp.github.io/Container/api/container)
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
