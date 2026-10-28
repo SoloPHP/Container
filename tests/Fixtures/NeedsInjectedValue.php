@@ -8,7 +8,7 @@ use Solo\Container\Attribute\Inject;
 
 class NeedsInjectedValue
 {
-    public function __construct(#[Inject('app.name')] public string $name)
+    public function __construct(#[Inject('app.name')] public string $name = 'default')
     {
     }
 }
