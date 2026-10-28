@@ -9,9 +9,11 @@ use stdClass;
 
 class NeedsInjectWithoutId
 {
-    // Deliberately malformed: #[Inject] requires an id.
-    // @phpstan-ignore arguments.count
-    public function __construct(#[Inject] public stdClass $service)
-    {
+    public function __construct(
+        public ClassWithDependency $first,
+        // Deliberately malformed: #[Inject] requires an id.
+        // @phpstan-ignore arguments.count
+        #[Inject] public stdClass $service,
+    ) {
     }
 }
