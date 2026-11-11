@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\Container;
 
+use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use ReflectionClass;
 use Solo\Contracts\Container\WritableContainerInterface;
@@ -15,6 +16,13 @@ use Solo\Container\Internal\Parameter;
 /** @no-named-arguments */
 final class Container implements WritableContainerInterface
 {
+    /** The ids that resolve to the container itself until set() or bind() registers them. */
+    private const array SELF_IDS = [
+        self::class => true,
+        ContainerInterface::class => true,
+        WritableContainerInterface::class => true,
+    ];
+
     /** @var array<string, callable(self): mixed> */
     private array $services = [];
 
@@ -76,6 +84,9 @@ final class Container implements WritableContainerInterface
      * resolution. The id must resolve (directly or through a binding) to an
      * instantiable class. For per-injection-point laziness use the #[Lazy]
      * attribute on the constructor parameter instead.
+     *
+     * The container itself is never proxied: under an id that resolves to it,
+     * the mark applies once the id is registered.
      */
     public function lazy(string $id): void
     {
@@ -85,13 +96,19 @@ final class Container implements WritableContainerInterface
 
     public function has(string $id): bool
     {
-        return isset($this->services[$id]) || isset($this->bindings[$id]) || class_exists($id);
+        return isset($this->services[$id])
+            || isset($this->bindings[$id])
+            || isset(self::SELF_IDS[$id])
+            || class_exists($id);
     }
 
     /**
      * An id that names a class or interface resolves to an instance of it: a
      * factory or binding that yields anything else throws ContainerException.
      * Any other id resolves to whatever was registered for it.
+     *
+     * The container's own class and the interfaces it implements resolve to the
+     * container itself until set() or bind() registers them.
      *
      * @template T of object
      * @param class-string<T>|string $id
@@ -103,6 +120,13 @@ final class Container implements WritableContainerInterface
     {
         if (array_key_exists($id, $this->instances)) {
             return $this->instances[$id];
+        }
+
+        // The container is not cached under its ids: reset() has nothing to drop and
+        // the container holds no reference to itself. Nor is it proxied when the id is
+        // marked lazy(): there is nothing to defer.
+        if ($this->isSelf($id)) {
+            return $this;
         }
 
         // An id marked lazy() is cached as its proxy, so the proxy builds the entry
@@ -152,6 +176,12 @@ final class Container implements WritableContainerInterface
         return implode(' -> ', [...array_keys($this->resolving), ...$tail]);
     }
 
+    /** Whether $id resolves to the container itself: one of its ids with no registration. */
+    private function isSelf(string $id): bool
+    {
+        return isset(self::SELF_IDS[$id]) && !isset($this->services[$id]) && !isset($this->bindings[$id]);
+    }
+
     private function notFound(string $id): NotFoundException
     {
         return new NotFoundException("Service '$id' not found in container.");
@@ -196,7 +226,8 @@ final class Container implements WritableContainerInterface
 
     /**
      * Follow the binding chain to the concrete class an id resolves to, or null
-     * if it is not (and is not bound to) an existing class.
+     * if it is not (and is not bound to) an existing class. An id that resolves
+     * to the container itself resolves to its class.
      *
      * @return class-string|null
      */
@@ -212,7 +243,11 @@ final class Container implements WritableContainerInterface
             $id = $this->bindings[$id];
         }
 
-        return class_exists($id) ? $id : null;
+        return match (true) {
+            class_exists($id) => $id,
+            $this->isSelf($id) => self::class,
+            default => null,
+        };
     }
 
     /**
@@ -267,8 +302,9 @@ final class Container implements WritableContainerInterface
     {
         $type = $param->type;
 
-        // #[Lazy] applies only to a class or interface type; on any other parameter it is ignored.
-        if ($type !== null && $param->lazy) {
+        // #[Lazy] applies only to a class or interface type; on any other parameter it is
+        // ignored, as it is on a dependency that is the container itself, already built.
+        if ($type !== null && $param->lazy && !$this->isSelf($param->id ?? $type)) {
             // A transient reference: on first use it reaches the shared entry of the
             // #[Inject] id, or of the type, through get().
             $target = $param->id ?? $type;

@@ -76,7 +76,7 @@ Use it when a root dependency changes, between tests, or between the jobs of a l
 
 ## Checking an Id
 
-`has()` tells whether the container knows how to resolve an id: the id has a factory or a binding, or it names an existing class.
+`has()` tells whether the container knows how to resolve an id: the id has a factory or a binding, names an existing class, or is one of the ids that resolve to [the container itself](/features/autowiring#the-container-itself).
 
 ```php
 $container->has('app.name');             // true — it has a factory

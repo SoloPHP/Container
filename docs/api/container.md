@@ -8,6 +8,8 @@ final class Container implements WritableContainerInterface
 
 `Solo\Contracts\Container\WritableContainerInterface` extends `Psr\Container\ContainerInterface` with `set()`, and types `get()` the same way as below. The other methods are specific to this container.
 
+Under `Container::class`, `ContainerInterface::class` and `WritableContainerInterface::class` the container resolves to itself until the id is registered with `set()` or `bind()`. See [The Container Itself](/features/autowiring#the-container-itself).
+
 ---
 
 ## __construct()
@@ -43,7 +45,7 @@ Makes `$abstract` resolve to `$concrete`, which is resolved like any other id; b
 public function lazy(string $id): void
 ```
 
-Marks an id so that it always resolves to a lazy proxy of the class it maps to, directly or through a binding. Drops the instance already cached for the id. See [Lazy Services](/features/lazy).
+Marks an id so that it always resolves to a lazy proxy of the class it maps to, directly or through a binding. Drops the instance already cached for the id. An id that resolves to the container itself still yields the container, not a proxy. See [Lazy Services](/features/lazy).
 
 ## has()
 
@@ -51,7 +53,7 @@ Marks an id so that it always resolves to a lazy proxy of the class it maps to, 
 public function has(string $id): bool
 ```
 
-`true` when the id has a factory or a binding, or names an existing class. A `true` result does not guarantee that `get()` succeeds.
+`true` when the id has a factory or a binding, names an existing class, or resolves to the container itself. A `true` result does not guarantee that `get()` succeeds.
 
 ## get()
 
@@ -66,7 +68,7 @@ public function has(string $id): bool
 public function get(string $id): mixed
 ```
 
-Returns the entry of an id, building it on first use: a cached instance, else a lazy proxy for an id marked `lazy()`, else the result of its factory, of its binding, or of auto-wiring its class.
+Returns the entry of an id, building it on first use: a cached instance, else the container itself for one of its own ids with no registration, else a lazy proxy for an id marked `lazy()`, else the result of its factory, of its binding, or of auto-wiring its class.
 
 - An id that names a class or interface resolves to an instance of it; any other result throws `ContainerException`.
 - `NotFoundException` means the id itself is unknown. Any other failure — a dependency that is missing or cannot be built — is a `ContainerException`.

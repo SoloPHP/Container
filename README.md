@@ -5,7 +5,18 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/solophp/container)
 
-Lightweight PSR-11 dependency injection container for PHP 8.4+. Register factories, bind interfaces to implementations and let constructor auto-wiring build the rest: each service is built once and shared. `get(Foo::class)` returns a `Foo` or throws — the container checks it — and PHPStan sees it as a `Foo`, so code analysed at level max needs no casts after it.
+A PSR-11 dependency injection container for PHP 8.4+. Most classes need no configuration: the container builds them from their constructors and shares one instance of each.
+
+## Features
+
+- **Auto-wiring** — a class is built from its constructor, and its dependencies the same way.
+- **Factories and bindings** — `set()` registers a factory, `bind()` points an interface at its implementation.
+- **Shared instances** — each service is built once; `reset()` drops them all, for example between the jobs of a worker.
+- **Lazy services** — `lazy()` and `#[Lazy]` defer construction with native lazy objects and break circular dependencies.
+- **Injection by id** — `#[Inject('id')]` resolves a parameter its type cannot tell apart.
+- **The container itself** — a parameter typed `Container`, `ContainerInterface` or `WritableContainerInterface` receives the container, with nothing to register.
+- **Cycle detection** — a circular dependency fails at once and names the whole chain.
+- **Guaranteed types** — `get(Foo::class)` returns a `Foo` or throws, and PHPStan sees a `Foo`: no casts at level max, through `WritableContainerInterface` as well.
 
 ## Installation
 
@@ -31,8 +42,6 @@ $container->bind(LoggerInterface::class, FileLogger::class);
 // Anything else is built from its constructor
 $users = $container->get(UserRepository::class); // a UserRepository, to PHPStan as well
 ```
-
-`lazy()` and `#[Lazy]` defer construction and break circular dependencies; `#[Inject('id')]` resolves a parameter its type cannot tell apart. Service providers typed against `WritableContainerInterface` from `solophp/contracts` get the same typed `get()`.
 
 Upgrading from 3.x? See [Upgrading to 4.0](https://solophp.github.io/Container/guide/upgrading).
 

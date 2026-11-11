@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.1.0 — 2026-11-11
+
+### Added
+
+- **The container resolves to itself.** `get()` of `Solo\Container\Container`, `Psr\Container\ContainerInterface` or `Solo\Contracts\Container\WritableContainerInterface` returns the container, and a constructor parameter of one of these types receives the container that builds the class — with nothing to register. `has()` is `true` for the three ids, and `reset()` does not affect them. A registration takes over: after `set()` or `bind()` on one of these ids, that id resolves to what was registered. See [The Container Itself](https://solophp.github.io/Container/features/autowiring#the-container-itself).
+
+### Changed
+
+- `get(Container::class)` returns the container. It used to auto-wire a new, empty `Container` and cache it, so a class asking for `Container` was handed a container that knew none of the application's services.
+- `get()` of the two interfaces used to throw `NotFoundException` until they were registered, and `has()` was `false` for them. A parameter of one of these types with a default value — `?ContainerInterface $container = null` — was left at its default; it now receives the container.
+- `lazy()` on one of the three ids, and `#[Lazy]` on a parameter of such a type, yield the container itself rather than a proxy, as it is already built. `lazy(Container::class)` used to yield a proxy of a new, empty container; the interfaces threw. Once the id is registered, the mark applies as to any other id.
+- With `#[Inject('id')] #[Lazy]` on a parameter typed with one of the two interfaces, the proxy is of `Container` when the interface is not registered, where building the class used to throw `ContainerException`. The id must yield a `Container`, as with an explicit `bind(ContainerInterface::class, Container::class)`.
+
 ## 4.0.0 — 2026-10-28
 
 The container is strict and its types are guaranteed: an id that names a class resolves to an instance of that class or fails, each id has one registration, and a missing dependency is reported as an error building the service that needs it. `get(Foo::class)` is a `Foo` to PHPStan, so code analysed at level max needs no cast after it. See the [upgrade guide](https://solophp.github.io/Container/guide/upgrading).

@@ -36,6 +36,6 @@ final class Lazy
 }
 ```
 
-Injects a lazy proxy of the shared service instead of resolving it eagerly. The proxy is built from the class the parameter type resolves to, through its binding for an interface; a class without properties is injected as a real instance, as PHP cannot defer it. Ignored on a parameter without a class or interface type.
+Injects a lazy proxy of the shared service instead of resolving it eagerly. The proxy is built from the class the parameter type resolves to, through its binding for an interface; a class without properties is injected as a real instance, as PHP cannot defer it. Ignored on a parameter without a class or interface type, and on one that resolves to the container itself.
 
 See [Lazy Services](/features/lazy).

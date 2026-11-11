@@ -32,6 +32,8 @@ The id must resolve, directly or through a binding, to an instantiable class:
 
 Marking an id lazy drops the instance already cached for it, as `set()` does.
 
+An id that resolves to [the container itself](/features/autowiring#the-container-itself) yields the container, not a proxy: it is already built. The same holds for `#[Lazy]` on a parameter of such a type.
+
 ## Lazy Injection Points — `#[Lazy]`
 
 To make one constructor dependency lazy without changing how the service resolves elsewhere, put `#[Lazy]` on the parameter:

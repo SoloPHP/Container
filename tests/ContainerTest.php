@@ -11,6 +11,7 @@ use Psr\Container\NotFoundExceptionInterface;
 use Solo\Container\Container;
 use Solo\Container\Exceptions\ContainerException;
 use Solo\Container\Exceptions\NotFoundException;
+use Solo\Contracts\Container\WritableContainerInterface;
 use Solo\Tests\Fixtures\AbstractService;
 use Solo\Tests\Fixtures\AttrCircularA;
 use Solo\Tests\Fixtures\AttrCircularB;
@@ -20,23 +21,32 @@ use Solo\Tests\Fixtures\ClassWithDefaultParam;
 use Solo\Tests\Fixtures\ClassWithDependency;
 use Solo\Tests\Fixtures\ClassWithDependencySubclass;
 use Solo\Tests\Fixtures\ClassWithUnresolvable;
+use Solo\Tests\Fixtures\DefaultService;
+use Solo\Tests\Fixtures\NeedsContainers;
+use Solo\Tests\Fixtures\NeedsInjectedContainer;
 use Solo\Tests\Fixtures\NeedsInjectedSelf;
 use Solo\Tests\Fixtures\NeedsInjectedServices;
 use Solo\Tests\Fixtures\NeedsInjectedValue;
 use Solo\Tests\Fixtures\NeedsInjectWithoutId;
 use Solo\Tests\Fixtures\NeedsInterface;
 use Solo\Tests\Fixtures\NeedsInterfaceIndirectly;
+use Solo\Tests\Fixtures\NeedsLazyContainers;
 use Solo\Tests\Fixtures\NeedsLazyDependency;
 use Solo\Tests\Fixtures\NeedsLazyInjected;
 use Solo\Tests\Fixtures\NeedsLazyInjectedContainer;
+use Solo\Tests\Fixtures\NeedsLazyInjectedService;
 use Solo\Tests\Fixtures\NeedsOptionalBroken;
 use Solo\Tests\Fixtures\NeedsOptionalContainer;
 use Solo\Tests\Fixtures\NeedsOptionalInjected;
+use Solo\Tests\Fixtures\NeedsOptionalService;
+use Solo\Tests\Fixtures\NeedsParent;
+use Solo\Tests\Fixtures\ServiceInterface;
 use Solo\Tests\Fixtures\Stateless;
 use ArrayObject;
 use ReflectionClass;
 use stdClass;
 use TypeError;
+use WeakReference;
 
 class ContainerTest extends TestCase
 {
@@ -84,10 +94,10 @@ class ContainerTest extends TestCase
 
     public function testBind(): void
     {
-        $this->container->bind(ContainerInterface::class, Container::class);
+        $this->container->bind(ServiceInterface::class, DefaultService::class);
 
-        $this->assertTrue($this->container->has(ContainerInterface::class));
-        $this->assertInstanceOf(Container::class, $this->container->get(ContainerInterface::class));
+        $this->assertTrue($this->container->has(ServiceInterface::class));
+        $this->assertInstanceOf(DefaultService::class, $this->container->get(ServiceInterface::class));
     }
 
     public function testAutoResolveWithDependencies(): void
@@ -434,27 +444,26 @@ class ContainerTest extends TestCase
 
     public function testInjectWithLazyProxiesAnInterfaceThroughItsBinding(): void
     {
-        $inner = new Container();
-        $inner->set('marker', fn() => 'inner');
-        $this->container->set('container', fn() => $inner);
-        $this->container->bind(ContainerInterface::class, Container::class);
+        $this->container->set('service', fn() => new DefaultService('injected'));
+        $this->container->bind(ServiceInterface::class, DefaultService::class);
 
-        $resolved = $this->container->get(NeedsLazyInjectedContainer::class);
+        $proxy = $this->container->get(NeedsLazyInjectedService::class)->service;
 
-        $this->assertLazyUninitialized($resolved->container);
-        $this->assertSame('inner', $resolved->container->get('marker'));
+        $this->assertInstanceOf(DefaultService::class, $proxy);
+        $this->assertLazyUninitialized($proxy);
+        $this->assertSame('injected', $proxy->name);
     }
 
     public function testInjectWithLazyOnUnboundInterfaceThrowsContainerException(): void
     {
-        $this->container->set('container', fn() => new Container());
+        $this->container->set('service', fn() => new DefaultService());
 
         $this->expectException(ContainerException::class);
         $this->expectExceptionMessage(
-            "'" . ContainerInterface::class . "' does not resolve to an instantiable class."
+            "'" . ServiceInterface::class . "' does not resolve to an instantiable class."
         );
 
-        $this->container->get(NeedsLazyInjectedContainer::class);
+        $this->container->get(NeedsLazyInjectedService::class);
     }
 
     public function testLazyInjectionForwardsToTheInstanceBehindALazyService(): void
@@ -478,6 +487,13 @@ class ContainerTest extends TestCase
         $this->container->set('peer', fn() => $peer);
 
         $this->assertSame($peer, $this->container->get(NeedsInjectedSelf::class)->peer);
+    }
+
+    public function testParentTypedParameterResolvesToTheParentClass(): void
+    {
+        $resolved = $this->container->get(NeedsParent::class);
+
+        $this->assertSame($this->container->get(ClassWithDependency::class), $resolved->base);
     }
 
     public function testInjectWithoutIdThrowsContainerException(): void
@@ -566,7 +582,7 @@ class ContainerTest extends TestCase
         } catch (ContainerException $e) {
             $this->assertSame(
                 'Cannot resolve ' . NeedsInterfaceIndirectly::class . ' -> ' . NeedsInterface::class
-                . ": Service '" . ContainerInterface::class . "' not found in container.",
+                . ": Service '" . ServiceInterface::class . "' not found in container.",
                 $e->getMessage()
             );
             $this->assertInstanceOf(NotFoundException::class, $e->getPrevious());
@@ -611,19 +627,18 @@ class ContainerTest extends TestCase
 
     public function testUnknownOptionalDependencyTakesTheDefault(): void
     {
-        $resolved = $this->container->get(NeedsOptionalContainer::class);
+        $resolved = $this->container->get(NeedsOptionalService::class);
 
         $this->assertNull($resolved->nullable);
-        $this->assertInstanceOf(Container::class, $resolved->withDefault);
-        $this->assertNotSame($this->container, $resolved->withDefault);
+        $this->assertInstanceOf(DefaultService::class, $resolved->withDefault);
     }
 
     public function testDefaultObjectIsBuiltAnewForEachInstance(): void
     {
-        $first = $this->container->get(NeedsOptionalContainer::class)->withDefault;
+        $first = $this->container->get(NeedsOptionalService::class)->withDefault;
         $this->container->reset();
 
-        $this->assertNotSame($first, $this->container->get(NeedsOptionalContainer::class)->withDefault);
+        $this->assertNotSame($first, $this->container->get(NeedsOptionalService::class)->withDefault);
     }
 
     public function testInvalidInjectFailsBeforeAnyDependencyIsBuilt(): void
@@ -646,12 +661,13 @@ class ContainerTest extends TestCase
 
     public function testKnownOptionalDependencyIsResolved(): void
     {
-        $this->container->set(ContainerInterface::class, fn(Container $c) => $c);
+        $service = new DefaultService();
+        $this->container->set(ServiceInterface::class, fn() => $service);
 
-        $resolved = $this->container->get(NeedsOptionalContainer::class);
+        $resolved = $this->container->get(NeedsOptionalService::class);
 
-        $this->assertSame($this->container, $resolved->nullable);
-        $this->assertSame($this->container, $resolved->withDefault);
+        $this->assertSame($service, $resolved->nullable);
+        $this->assertSame($service, $resolved->withDefault);
     }
 
     public function testOptionalDependencyThatCannotBeBuiltDoesNotFallBack(): void
@@ -715,5 +731,169 @@ class ContainerTest extends TestCase
         $this->expectException(TypeError::class);
         // @phpstan-ignore argument.type (not a callable)
         new Container(['bad' => 'not a callable']);
+    }
+
+    #[DataProvider('ownIds')]
+    public function testResolvesToItselfUnderItsOwnIds(string $id): void
+    {
+        $this->assertTrue($this->container->has($id));
+        $this->assertSame($this->container, $this->container->get($id));
+
+        // The container is not one of its cached instances, so reset() cannot drop it.
+        $this->container->reset();
+        $this->assertSame($this->container, $this->container->get($id));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function ownIds(): iterable
+    {
+        yield 'its class' => [Container::class];
+        yield 'the PSR-11 interface' => [ContainerInterface::class];
+        yield 'the writable interface' => [WritableContainerInterface::class];
+    }
+
+    public function testInjectsItselfIntoConstructors(): void
+    {
+        $resolved = $this->container->get(NeedsContainers::class);
+
+        $this->assertSame($this->container, $resolved->container);
+        $this->assertSame($this->container, $resolved->psr);
+        $this->assertSame($this->container, $resolved->writable);
+    }
+
+    public function testOptionalContainerParameterTakesTheContainerNotItsDefault(): void
+    {
+        $resolved = $this->container->get(NeedsOptionalContainer::class);
+
+        $this->assertSame($this->container, $resolved->nullable);
+        $this->assertSame($this->container, $resolved->withDefault);
+    }
+
+    public function testResolvingItselfLeavesNoReferenceToItself(): void
+    {
+        $container = new Container();
+        $container->get(Container::class);
+        $container->get(ContainerInterface::class);
+        $reference = WeakReference::create($container);
+
+        unset($container);
+
+        // Freed by its reference count alone: the container is not in its own cache.
+        $this->assertNull($reference->get());
+    }
+
+    #[DataProvider('ownIds')]
+    public function testFactoryReplacesTheContainerUnderItsId(string $id): void
+    {
+        $other = new Container();
+        $this->container->set($id, fn() => $other);
+
+        $this->assertSame($other, $this->container->get($id));
+
+        $this->container->reset();
+        $this->assertSame($other, $this->container->get($id));
+    }
+
+    public function testRegisteredContainerIdsAreInjectedAsRegistered(): void
+    {
+        $psr = new Container();
+        $this->container->set(ContainerInterface::class, fn() => $psr);
+
+        $resolved = $this->container->get(NeedsContainers::class);
+
+        $this->assertSame($psr, $resolved->psr);
+        // The ids are independent: the others still resolve to the container.
+        $this->assertSame($this->container, $resolved->container);
+        $this->assertSame($this->container, $resolved->writable);
+    }
+
+    #[DataProvider('ownIds')]
+    public function testBindingReplacesTheContainerUnderItsId(string $id): void
+    {
+        $this->container->bind($id, stdClass::class);
+
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage("Service '$id' is stdClass, not an instance of $id.");
+
+        $this->container->get($id);
+    }
+
+    public function testInterfaceBoundToARegisteredContainerClassResolvesThroughTheBinding(): void
+    {
+        $other = new Container();
+        $this->container->set(Container::class, fn() => $other);
+        $this->container->bind(ContainerInterface::class, Container::class);
+
+        $this->assertSame($other, $this->container->get(ContainerInterface::class));
+    }
+
+    public function testIdBoundToTheContainerClassResolvesToTheContainer(): void
+    {
+        $this->container->bind('app', Container::class);
+
+        $this->assertSame($this->container, $this->container->get('app'));
+    }
+
+    #[DataProvider('ownIds')]
+    public function testLazyIdOfTheContainerIsTheContainerItself(string $id): void
+    {
+        $this->container->lazy($id);
+
+        // The container is already built: there is nothing to defer, so no proxy stands in for it.
+        $this->assertSame($this->container, $this->container->get($id));
+    }
+
+    public function testLazyAttributeOnAContainerParameterInjectsTheContainerItself(): void
+    {
+        $resolved = $this->container->get(NeedsLazyContainers::class);
+
+        $this->assertSame($this->container, $resolved->container);
+        $this->assertSame($this->container, $resolved->psr);
+        $this->assertSame($this->container, $resolved->writable);
+    }
+
+    public function testLazyAppliesToAContainerIdOnceItIsRegistered(): void
+    {
+        $other = new Container();
+        $other->set('marker', fn() => 'other');
+        $this->container->set(Container::class, fn() => $other);
+        $this->container->lazy(Container::class);
+
+        $proxy = $this->container->get(Container::class);
+
+        $this->assertLazyUninitialized($proxy);
+        $this->assertSame('other', $proxy->get('marker'));
+    }
+
+    public function testInjectOnAContainerParameterTakesTheEntryOfItsId(): void
+    {
+        $inner = new Container();
+        $this->container->set('container', fn() => $inner);
+
+        $this->assertSame($inner, $this->container->get(NeedsInjectedContainer::class)->container);
+    }
+
+    public function testInjectOnAContainerParameterDoesNotFallBackToTheContainer(): void
+    {
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessage(
+            'Cannot resolve ' . NeedsInjectedContainer::class . ": Service 'container' not found in container."
+        );
+
+        $this->container->get(NeedsInjectedContainer::class);
+    }
+
+    public function testInjectWithLazyOnAContainerParameterProxiesTheEntryOfItsId(): void
+    {
+        $inner = new Container();
+        $inner->set('marker', fn() => 'inner');
+        $this->container->set('container', fn() => $inner);
+
+        $resolved = $this->container->get(NeedsLazyInjectedContainer::class);
+
+        // With no binding, the interface resolves to the container, so the proxy is of its class.
+        $this->assertInstanceOf(Container::class, $resolved->container);
+        $this->assertLazyUninitialized($resolved->container);
+        $this->assertSame('inner', $resolved->container->get('marker'));
     }
 }
