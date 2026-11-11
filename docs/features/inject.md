@@ -68,6 +68,8 @@ final class Reports
 
 The id must be registered when `Reports` is built; an unknown one fails then, or takes the parameter's default, as without `#[Lazy]`. The proxy is built from the class the declared type resolves to, directly or through a binding, so that class must be instantiable, and the id must yield an instance of exactly it — a subclass, another implementation or `null` throws `ContainerException` on first use.
 
+A container type that is not registered resolves to [the container itself](/features/autowiring#the-container-itself), so its proxy is of `Solo\Container\Container`: `#[Inject('tenant.container')] #[Lazy] ContainerInterface $tenant` works when the id yields a `Container`.
+
 ## Invalid Attributes
 
 `#[Inject]` without an id, or repeated on one parameter, throws `ContainerException` naming the parameter:

@@ -27,6 +27,37 @@ Each constructor parameter is resolved in turn:
 
 A class without a constructor is created with `new`. A parameter typed `self` or `parent` resolves to the declaring class or its parent.
 
+## The Container Itself
+
+The container resolves to itself under its own class and the two interfaces it implements, with nothing to register:
+
+```php
+use Psr\Container\ContainerInterface;
+use Solo\Container\Container;
+use Solo\Contracts\Container\WritableContainerInterface;
+
+$container->get(Container::class) === $container;                  // true
+$container->get(ContainerInterface::class) === $container;         // true
+$container->get(WritableContainerInterface::class) === $container; // true
+```
+
+So a class that needs the container — a factory of handlers, a validation rule that looks services up by name — declares it like any other dependency and receives the container that builds it:
+
+```php
+final class HandlerFactory
+{
+    public function __construct(private ContainerInterface $container)
+    {
+    }
+}
+```
+
+`has()` is `true` for the three ids, and `reset()` does not affect them: the container is not one of its cached instances.
+
+A registration takes over. After `set()` or `bind()` on one of these ids, that id resolves to what was registered, by the same rules as any other id; the other two still resolve to the container. `#[Inject('id')]` on a parameter of a container type takes the entry of its id, as on any parameter.
+
+The container is never a lazy proxy of itself — it is already built, so there is nothing to defer. `lazy()` on one of these ids, or `#[Lazy]` on a parameter of that type, yields the container; the mark applies once the id is registered.
+
 ## Optional Dependencies
 
 A dependency the container does not know — an interface that is neither bound nor registered, an id that is not registered — leaves a parameter with a default value at that default:
@@ -70,7 +101,7 @@ final class Mailer
 |---|---|
 | A required class or interface parameter the container does not know | `ContainerException`: `Cannot resolve Mailer: Service 'Transport' not found in container.` |
 | `get()` of an abstract class, an enum, or a class with a non-public constructor | `ContainerException`: `Class 'X' is not instantiable.` |
-| `get()` of an interface that is neither bound nor registered | `NotFoundException` |
+| `get()` of an interface that is neither bound nor registered, other than [the container's own](#the-container-itself) | `NotFoundException` |
 | A parameter with no class type, no default and no `#[Inject]` | `ContainerException`: `Cannot resolve parameter '$x' in class 'Y'.` |
 | A class that depends on itself, directly or through others | `ContainerException`: `Circular dependency detected: …` — see [Circular Dependencies](/features/circular-dependencies) |
 
