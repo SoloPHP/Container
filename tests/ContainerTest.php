@@ -39,6 +39,7 @@ use Solo\Tests\Fixtures\NeedsOptionalBroken;
 use Solo\Tests\Fixtures\NeedsOptionalContainer;
 use Solo\Tests\Fixtures\NeedsOptionalInjected;
 use Solo\Tests\Fixtures\NeedsOptionalService;
+use Solo\Tests\Fixtures\NeedsParent;
 use Solo\Tests\Fixtures\ServiceInterface;
 use Solo\Tests\Fixtures\Stateless;
 use ArrayObject;
@@ -486,6 +487,13 @@ class ContainerTest extends TestCase
         $this->container->set('peer', fn() => $peer);
 
         $this->assertSame($peer, $this->container->get(NeedsInjectedSelf::class)->peer);
+    }
+
+    public function testParentTypedParameterResolvesToTheParentClass(): void
+    {
+        $resolved = $this->container->get(NeedsParent::class);
+
+        $this->assertSame($this->container->get(ClassWithDependency::class), $resolved->base);
     }
 
     public function testInjectWithoutIdThrowsContainerException(): void
