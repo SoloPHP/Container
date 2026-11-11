@@ -20,7 +20,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/installation' },
       { text: 'Features', link: '/features/services' },
       { text: 'API', link: '/api/container' },
-      { text: 'v4.0.0', link: '/guide/upgrading' },
+      { text: 'v4.1.0', link: '/guide/upgrading' },
       {
         text: 'Links',
         items: [
